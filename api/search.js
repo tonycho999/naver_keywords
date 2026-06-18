@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
 
     try {
         // 1. 네이버 자동완성 연관어 추출
-        const autoUrl = `https://search.naver.com/OdrSorUrl.nhn?query=${encodeURIComponent(keyword)}`;
+        const autoUrl = `https://ac.search.naver.com/nx/ac?q=${encodeURIComponent(keyword)}&con=1&frm=nv&ans=2&r_format=json&r_enc=UTF-8&r_unicode=0&t_k_org=1&q_enc=UTF-8&st=100&is_scui=0`;
         const autoRes = await requestPromise(autoUrl, 'GET', {}, null);
         
         let related = [];
