@@ -94,35 +94,37 @@ module.exports = async (req, res) => {
         };
 
         // 3. 쇼핑 검색 트렌드 — 올바른 API 사용
-        const fetchShoppingTrend = async () => {
-            const results = {};
-            // Naver 제한: keyword 최대 5개
-            for (let i = 0; i < allKeywords.length; i += 5) {
-                const chunk = allKeywords.slice(i, i + 5);
-                const body = {
-                    startDate,
-                    endDate,
-                    timeUnit: 'month',
-                    keyword: chunk.map(kw => ({ name: kw, param: [kw] }))  // keywordGroups 아님!
-                };
-                const apiRes = await requestPromise(
-                    'https://openapi.naver.com/v1/datalab/shopping/keywords', // categories 아님!
-                    'POST', apiHeaders, body
-                );
-                console.log(`[shop] chunk ${i}~${i+5} status:`, apiRes.status, JSON.stringify(apiRes.data).slice(0, 200));
-                if (apiRes.status === 200 && apiRes.data?.results) {
-                    apiRes.data.results.forEach(item => {
-                        const max = item.data?.length > 0
-                            ? Math.max(...item.data.map(d => d.ratio)) : 0;
-                        results[item.title] = Math.max(results[item.title] || 0, max);
-                    });
-                }
-            }
-            return Object.entries(results)
-                .map(([name, score]) => ({ name, score }))
-                .sort((a, b) => b.score - a.score)
-                .slice(0, 15);
+// fetchShoppingTrend 함수만 아래로 교체
+
+const fetchShoppingTrend = async () => {
+    const results = {};
+    for (let i = 0; i < allKeywords.length; i += 5) {
+        const chunk = allKeywords.slice(i, i + 5);
+        const body = {
+            startDate,
+            endDate,
+            timeUnit: 'month',
+            category: '50000000',   // 쇼핑 전체 카테고리
+            keyword: chunk.map(kw => ({ name: kw, param: [kw] }))
         };
+        const apiRes = await requestPromise(
+            'https://openapi.naver.com/v1/datalab/shopping/category/keywords',  // 수정
+            'POST', apiHeaders, body
+        );
+        console.log(`[shop] chunk ${i} status:`, apiRes.status, JSON.stringify(apiRes.data).slice(0, 200));
+        if (apiRes.status === 200 && apiRes.data?.results) {
+            apiRes.data.results.forEach(item => {
+                const max = item.data?.length > 0
+                    ? Math.max(...item.data.map(d => d.ratio)) : 0;
+                results[item.title] = Math.max(results[item.title] || 0, max);
+            });
+        }
+    }
+    return Object.entries(results)
+        .map(([name, score]) => ({ name, score }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 15);
+};
 
         const [trendData, shopData] = await Promise.all([
             fetchSearchTrend(),
