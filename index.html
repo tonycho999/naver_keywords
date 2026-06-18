@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 트렌드 & 쇼핑 검색어 15위 분석기</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background-color: #f8f9fa; color: #333; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 30px; max-width: 600px; }
+        input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button { padding: 12px 24px; background-color: #03c75a; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #02b34e; }
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        h2 { border-bottom: 2px solid #f1f3f5; padding-bottom: 10px; margin-top: 0; font-size: 20px; }
+        .rank-item { margin: 15px 0; }
+        .rank-info { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 5px; }
+        .progress-bar { background-color: #e9ecef; border-radius: 4px; height: 8px; overflow: hidden; }
+        .progress-fill { background-color: #03c75a; height: 100%; width: 0%; transition: width 0.5s ease; }
+        .shopping .progress-fill { background-color: #2db4ea; }
+        #loading { display: none; font-weight: bold; color: #666; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <h1>📊 네이버 트렌드 & 쇼핑 검색어 15위 분석기</h1>
+    <p>검색어를 입력하면 관련 연관어 14개를 추출하여 총 15위까지의 순위를 분석합니다.</p>
+
+    <div class="search-box">
+        <input type="text" id="keywordInput" placeholder="조사할 핵심 검색어를 입력하세요 (예: 캠핑, 원피스)">
+        <button onclick="startAnalysis()">조사 시작</button>
+    </div>
+
+    <div id="loading">네이버 데이터를 분석 중입니다. 잠시만 기다려주세요 (약 3~5초 소요)...</div>
+
+    <div class="container">
+        <div class="card">
+            <h2>📊 통합 검색 트렌드 순위 (Top 15)</h2>
+            <div id="trendRank"></div>
+        </div>
+        <div class="card shopping">
+            <h2>🛒 쇼핑 검색어 클릭 순위 (Top 15)</h2>
+            <div id="shopRank"></div>
+        </div>
+    </div>
+
+    <script>
+        async function startAnalysis() {
+            const keyword = document.getElementById('keywordInput').value;
+            if (!keyword) return alert('검색어를 입력해주세요.');
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('trendRank').innerHTML = '';
+            document.getElementById('shopRank').innerHTML = '';
+
+            try {
+                const response = await fetch(`/api/search?keyword=${encodeURIComponent(keyword)}`);
+                const data = await response.json();
+
+                if (!response.ok) throw new Error(data.error || '알 수 없는 에러');
+
+                renderList('trendRank', data.trend);
+                renderList('shopRank', data.shop);
+            } catch (error) {
+                alert('에러 발생: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function renderList(targetId, list) {
+            const container = document.getElementById(targetId);
+            container.innerHTML = list.map((item, idx) => `
+                <div class="rank-item">
+                    <div class="rank-info">
+                        <span>${idx + 1}위. ${item.name}</span>
+                        <span>${item.score.toFixed(1)}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${item.score}%"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
