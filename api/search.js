@@ -1,58 +1,35 @@
-const https = require('https');
-
-// 💡 추가된 함수: 날짜를 YYYY-MM-DD 포맷으로 반환하며, 며칠 전(daysAgo)인지 계산
+// 날짜 포맷 함수
 function getFormattedDate(daysAgo) {
     const date = new Date();
     date.setDate(date.getDate() - daysAgo);
-    
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    
     return `${year}-${month}-${day}`;
 }
 
-const requestPromise = (url, method, headers, bodyData) => {
-    return new Promise((resolve, reject) => {
-        const urlObj = new URL(url);
-        const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname + urlObj.search,
-            method,
-            headers
-        };
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-                try { resolve({ status: res.statusCode, data: JSON.parse(data) }); } 
-                catch (e) { resolve({ status: res.statusCode, data: null }); }
-            });
-        });
-        req.on('error', (err) => reject(err));
-        if (bodyData) req.write(JSON.stringify(bodyData));
-        req.end();
-    });
-};
-
 module.exports = async (req, res) => {
-    const { keyword } = req.query;
+    // 프론트에서 넘어온 keyword와 category를 모두 받습니다.
+    const { keyword, category } = req.query;
     const clientId = process.env.NAVER_CLIENT_ID;
     const clientSecret = process.env.NAVER_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) return res.status(500).json({ error: 'API 키 누락' });
     if (!keyword) return res.status(400).json({ error: '검색어를 입력해주세요' });
+    // 카테고리가 안 넘어오면 기본값으로 패션의류(50000000) 세팅
+    const shopCategory = category || '50000000'; 
 
     try {
-        // 1. 연관어 추출
+        // 1. 연관어 추출 (네이버 자동완성 API)
         const autoUrl = `https://ac.search.naver.com/nx/ac?q=${encodeURIComponent(keyword)}&con=1&frm=nv&ans=2&r_format=json&r_enc=UTF-8&r_unicode=0&t_k_org=1&q_enc=UTF-8&st=100&is_scui=0`;
-        const autoRes = await requestPromise(autoUrl, 'GET', { 'User-Agent': 'Mozilla/5.0' }, null);
+        const autoRes = await fetch(autoUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const autoData = await autoRes.json();
+        
         let related = [];
-
-        if (autoRes.data && autoRes.data.items && autoRes.data.items[0]) {
-            related = autoRes.data.items[0]
-                .map(item => Array.isArray(item) ? item[0] : item)
-                .filter(item => item && item !== keyword)
+        if (autoData && autoData.items && autoData.items[0]) {
+            related = autoData.items[0]
+                .map(item => Array.isArray(item) ? item[0].trim() : item.trim())
+                .filter(item => item && item !== keyword.trim())
                 .slice(0, 14);
         }
 
@@ -62,16 +39,14 @@ module.exports = async (req, res) => {
             'Content-Type': 'application/json'
         };
 
-        // 💡 수정 포인트: 넉넉하게 최근 3개월 치를 매일(date) 단위로 조회합니다.
-        const endDate = getFormattedDate(1);   // 어제
-        const startDate = getFormattedDate(90); // 90일 전 (약 3개월)
+        const endDate = getFormattedDate(1);    // 어제
+        const startDate = getFormattedDate(90); // 90일 전
 
-        // 2. 통합 검색 트렌드
+        // 2. 통합 검색 트렌드 함수
         const fetchSearchTrend = async () => {
             const results = { [keyword]: 0 };
             for (let i = 0; i < related.length; i += 4) {
                 const chunk = related.slice(i, i + 4);
-                // 검색된 기준점(keyword)을 항상 맨 앞에 끼워넣어 점수를 정상 비교합니다.
                 const currentKeywords = [keyword, ...chunk]; 
                 
                 const body = {
@@ -80,41 +55,59 @@ module.exports = async (req, res) => {
                     keywordGroups: currentKeywords.map(kw => ({ groupName: kw, keywords: [kw] }))
                 };
                 
-                const apiRes = await requestPromise('https://openapi.naver.com/v1/datalab/search', 'POST', apiHeaders, body);
-                if (apiRes.status === 200 && apiRes.data && apiRes.data.results) {
-                    apiRes.data.results.forEach(item => {
+                const res = await fetch('https://openapi.naver.com/v1/datalab/search', {
+                    method: 'POST', headers: apiHeaders, body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                
+                if (data.results) {
+                    data.results.forEach(item => {
                         const max = item.data.length > 0 ? Math.max(...item.data.map(d => d.ratio)) : 0;
                         results[item.title] = Math.max(results[item.title] || 0, max);
                     });
                 }
             }
-            return Object.entries(results).map(([name, score]) => ({ name, score })).sort((a, b) => b.score - a.score).slice(0, 15);
+            // 0.0점 필터링
+            return Object.entries(results)
+                .map(([name, score]) => ({ name, score }))
+                .filter(item => item.score > 0 || item.name === keyword)
+                .sort((a, b) => b.score - a.score).slice(0, 15);
         };
 
-        // 3. 쇼핑 검색 트렌드
+        // 3. 쇼핑 검색 트렌드 함수 (선택한 카테고리 적용)
         const fetchShoppingTrend = async () => {
             const results = { [keyword]: 0 };
             for (let i = 0; i < related.length; i += 4) {
                 const chunk = related.slice(i, i + 4);
                 const currentKeywords = [keyword, ...chunk]; 
+                
                 const body = {
                     startDate, endDate,
                     timeUnit: 'date',
-                    category: '50000000',
+                    category: shopCategory, // 동적 카테고리
                     keyword: currentKeywords.map(kw => ({ name: kw, param: [kw] }))
                 };
                 
-                const apiRes = await requestPromise('https://openapi.naver.com/v1/datalab/shopping/category/keywords', 'POST', apiHeaders, body);
-                if (apiRes.status === 200 && apiRes.data && apiRes.data.results) {
-                    apiRes.data.results.forEach(item => {
+                const res = await fetch('https://openapi.naver.com/v1/datalab/shopping/category/keywords', {
+                    method: 'POST', headers: apiHeaders, body: JSON.stringify(body)
+                });
+                const data = await res.json();
+
+                if (data.results) {
+                    data.results.forEach(item => {
                         const max = item.data.length > 0 ? Math.max(...item.data.map(d => d.ratio)) : 0;
                         results[item.title] = Math.max(results[item.title] || 0, max);
                     });
                 }
             }
-            return Object.entries(results).map(([name, score]) => ({ name, score })).sort((a, b) => b.score - a.score).slice(0, 15);
+            // 0.0점 필터링
+            return Object.entries(results)
+                .map(([name, score]) => ({ name, score }))
+                .filter(item => item.score > 0 || item.name === keyword)
+                .sort((a, b) => b.score - a.score).slice(0, 15);
         };
 
+        // 두 API 동시 실행
         const [trendData, shopData] = await Promise.all([fetchSearchTrend(), fetchShoppingTrend()]);
         return res.status(200).json({ trend: trendData, shop: shopData });
 
