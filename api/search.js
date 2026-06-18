@@ -1,5 +1,17 @@
 const https = require('https');
 
+// 💡 추가된 함수: 날짜를 YYYY-MM-DD 포맷으로 반환하며, 며칠 전(daysAgo)인지 계산
+function getFormattedDate(daysAgo) {
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+    
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
+}
+
 const requestPromise = (url, method, headers, bodyData) => {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
@@ -35,8 +47,8 @@ module.exports = async (req, res) => {
         // 1. 연관어 추출
         const autoUrl = `https://ac.search.naver.com/nx/ac?q=${encodeURIComponent(keyword)}&con=1&frm=nv&ans=2&r_format=json&r_enc=UTF-8&r_unicode=0&t_k_org=1&q_enc=UTF-8&st=100&is_scui=0`;
         const autoRes = await requestPromise(autoUrl, 'GET', { 'User-Agent': 'Mozilla/5.0' }, null);
-
         let related = [];
+
         if (autoRes.data && autoRes.data.items && autoRes.data.items[0]) {
             related = autoRes.data.items[0]
                 .map(item => Array.isArray(item) ? item[0] : item)
@@ -50,9 +62,9 @@ module.exports = async (req, res) => {
             'Content-Type': 'application/json'
         };
 
-        // 💡 핵심 수정 포인트: 넉넉하게 최근 3개월 치를 매일(date) 단위로 조회합니다.
-    const endDate = getFormattedDate(1);   
-    const startDate = getFormattedDate(7);
+        // 💡 수정 포인트: 넉넉하게 최근 3개월 치를 매일(date) 단위로 조회합니다.
+        const endDate = getFormattedDate(1);   // 어제
+        const startDate = getFormattedDate(90); // 90일 전 (약 3개월)
 
         // 2. 통합 검색 트렌드
         const fetchSearchTrend = async () => {
@@ -85,7 +97,6 @@ module.exports = async (req, res) => {
             for (let i = 0; i < related.length; i += 4) {
                 const chunk = related.slice(i, i + 4);
                 const currentKeywords = [keyword, ...chunk]; 
-
                 const body = {
                     startDate, endDate,
                     timeUnit: 'date',
